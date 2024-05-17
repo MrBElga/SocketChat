@@ -1,10 +1,12 @@
 import java.io.*;
 import java.net.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class ChatServer {
     private static final int PORT = 6789;
-    private static Set<ClientHandler> clients = new HashSet<>();
+    private static final Set<ClientHandler> clients = new HashSet<>();
+    private static final Object lock = new Object();
 
     public static void main(String[] args) throws UnknownHostException {
         System.out.println("Chat server started...");
@@ -19,19 +21,35 @@ public class ChatServer {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             while (true) {
                 Socket clientSocket = serverSocket.accept();
-                ClientHandler clientHandler = new ClientHandler(clientSocket);
-                clients.add(clientHandler);
-                new Thread(clientHandler).start();
+                synchronized (lock) {
+                    ClientHandler clientHandler = new ClientHandler(clientSocket);
+                    clients.add(clientHandler);
+                    new Thread(clientHandler).start();
+                    if (clients.size() > 1) {
+                        requestClientAcceptance(clientHandler);
+                        lock.wait();
+                    } else {
+                        clientHandler.accept();
+                    }
+                }
             }
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
 
+    private static void requestClientAcceptance(ClientHandler newClient) {
+        for (ClientHandler client : clients) {
+            if (!client.equals(newClient)) {
+                client.requestAcceptance(newClient);
+            }
+        }
+    }
+
     private static class ClientHandler implements Runnable {
-        private Socket socket;
-        private PrintWriter out;
-        private BufferedReader in;
+        private final Socket socket;
+        private final PrintWriter out;
+        private final BufferedReader in;
         private String username;
         private boolean joined;
 
@@ -43,8 +61,12 @@ public class ChatServer {
 
         public void run() {
             try {
+                log("User connected");
                 while (true) {
                     String input = in.readLine();
+                    if (input == null) {
+                        break;
+                    }
                     if (input.startsWith("JOIN")) {
                         handleJoin(input);
                     } else if (input.startsWith("MSG")) {
@@ -63,39 +85,30 @@ public class ChatServer {
                     e.printStackTrace();
                 }
                 clients.remove(this);
+                log("User disconnected");
             }
         }
 
         private synchronized void handleJoin(String input) throws IOException {
             this.username = input.substring(5);
-            if (clients.size() == 1) {
-                joined = true;
-                out.println("JOIN_ACCEPTED");
-                broadcast(username + " has joined the chat.");
-            } else {
-                out.println("Join request from " + username + ". Accept? (yes/no)");
-                String response = in.readLine();
-                if (response.equalsIgnoreCase("yes")) {
-                    joined = true;
-                    out.println("JOIN_ACCEPTED");
-                    broadcast(username + " has joined the chat.");
-                } else {
-                    out.println("JOIN_DENIED");
-                    socket.close();
-                }
-            }
+            joined = true;
+            out.println("JOIN_ACCEPTED");
+            broadcast(username + " has joined the chat.");
+            log(username + " has joined the chat.");
         }
 
         private void handleMessage(String input) {
             if (joined) {
                 String message = input.substring(4);
                 broadcast(username + ": " + message);
+                log(username + " sent message: " + message);
             }
         }
 
         private void handleExit() {
             if (joined) {
                 broadcast(username + " has left the chat.");
+                log(username + " has left the chat.");
             }
         }
 
@@ -103,6 +116,22 @@ public class ChatServer {
             for (ClientHandler client : clients) {
                 client.out.println(message);
             }
+        }
+
+        private void log(String message) {
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
+            String timestamp = dateFormat.format(new Date());
+            System.out.println("[" + timestamp + "] " + message);
+        }
+
+        private synchronized void requestAcceptance(ClientHandler newClient) {
+            out.println("JOIN_REQUEST");
+            // Aqui não precisamos chamar um método "accept"
+        }
+
+        // Método para aceitar a entrada de um novo cliente
+        private synchronized void accept() {
+            out.println("JOIN_ACCEPTED");
         }
     }
 }

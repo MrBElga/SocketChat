@@ -1,6 +1,5 @@
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class ChatClient {
     private String username;
@@ -15,34 +14,47 @@ public class ChatClient {
     }
 
     public void start() throws IOException {
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter your username: ");
-        username = scanner.nextLine();
-        out.println("JOIN " + username);
+        try {
+            BufferedReader userInput = new BufferedReader(new InputStreamReader(System.in));
 
-        String response = in.readLine();
-        if (response.equals("JOIN_ACCEPTED")) {
-            System.out.println("You have joined the chat.");
-        } else {
-            System.out.println("Join request denied: " + response);
-            socket.close();
-            return;
-        }
+            System.out.print("Enter your username: ");
+            username = userInput.readLine();
+            out.println("JOIN " + username);
 
-        Thread listener = new Thread(new Listener());
-        listener.start();
-
-        while (true) {
-            String message = scanner.nextLine();
-            if (message.equalsIgnoreCase("sair")) {
-                out.println("EXIT");
-                break;
+            String response = in.readLine();
+            if (response.equals("JOIN_ACCEPTED")) {
+                System.out.println("You have joined the chat.");
+            } else if (response.startsWith("JOIN_REQUEST")) {
+                String newClientUsername = response.substring(13);
+                System.out.println(newClientUsername + " wants to join the chat. Do you accept? (yes/no)");
+                String acceptResponse = userInput.readLine();
+                if (acceptResponse.equalsIgnoreCase("yes")) {
+                    out.println("ACCEPT");
+                } else {
+                    out.println("DENY");
+                }
+            } else {
+                System.out.println("Unexpected response from server: " + response);
+                socket.close();
+                return;
             }
-            out.println("MSG " + message);
-        }
 
-        listener.interrupt();
-        socket.close();
+            Thread listener = new Thread(new Listener());
+            listener.start();
+
+            while (true) {
+                String message = userInput.readLine();
+                if (message.equalsIgnoreCase("exit")) {
+                    out.println("EXIT");
+                    break;
+                }
+                out.println("MSG " + message);
+            }
+
+            listener.interrupt();
+        } finally {
+            socket.close();
+        }
     }
 
     private class Listener implements Runnable {
@@ -53,14 +65,14 @@ public class ChatClient {
                     System.out.println(message);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("Connection closed.");
             }
         }
     }
 
     public static void main(String[] args) {
         try {
-            ChatClient client = new ChatClient("localhost", 6789);
+            ChatClient client = new ChatClient("LF102M04-72607", 6789);
             client.start();
         } catch (IOException e) {
             e.printStackTrace();
