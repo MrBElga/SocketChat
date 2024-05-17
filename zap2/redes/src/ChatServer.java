@@ -6,8 +6,16 @@ public class ChatServer {
     private static final int PORT = 6789;
     private static Set<ClientHandler> clients = new HashSet<>();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws UnknownHostException {
         System.out.println("Chat server started...");
+        InetAddress inetAddress = InetAddress.getLocalHost();
+        String hostname = inetAddress.getHostName();
+        String ipAddress = inetAddress.getHostAddress();
+        int port = 6789;
+        System.out.println("Rodando no hostname: " + hostname);
+        System.out.println("Rodando no IP: " + ipAddress);
+        System.out.println("Rodando na porta: " + port);
+
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             while (true) {
                 Socket clientSocket = serverSocket.accept();
