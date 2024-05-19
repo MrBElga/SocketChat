@@ -21,22 +21,20 @@ public class ChatClient {
             username = userInput.readLine();
             out.println("JOIN " + username);
 
-            String response = in.readLine();
-            if (response.equals("JOIN_ACCEPTED")) {
-                System.out.println("You have joined the chat.");
-            } else if (response.startsWith("JOIN_REQUEST")) {
-                String newClientUsername = response.substring(13);
-                System.out.println(newClientUsername + " wants to join the chat. Do you accept? (yes/no)");
-                String acceptResponse = userInput.readLine();
-                if (acceptResponse.equalsIgnoreCase("yes")) {
-                    out.println("ACCEPT");
+            String response;
+            while ((response = in.readLine()) != null) {
+                if (response.equals("JOIN_ACCEPTED")) {
+                    System.out.println("You have joined the chat.");
+                    break;
+                } else if (response.startsWith("JOIN_REQUEST")) {
+                    handleJoinRequest(response, userInput);
+                } else if (response.equals("JOIN_DENIED")) {
+                    System.out.println("You were denied access to the chat.");
+                    socket.close();
+                    return;
                 } else {
-                    out.println("DENY");
+                    System.out.println("Unexpected response from server: " + response);
                 }
-            } else {
-                System.out.println("Unexpected response from server: " + response);
-                socket.close();
-                return;
             }
 
             Thread listener = new Thread(new Listener());
@@ -57,6 +55,17 @@ public class ChatClient {
         }
     }
 
+    private void handleJoinRequest(String response, BufferedReader userInput) throws IOException {
+        String newClientUsername = response.substring(13);
+        System.out.println(newClientUsername + " wants to join the chat. Do you accept? (yes/no)");
+        String acceptResponse = userInput.readLine();
+        if (acceptResponse.equalsIgnoreCase("yes")) {
+            out.println("ACCEPT " + newClientUsername);
+        } else {
+            out.println("DENY " + newClientUsername);
+        }
+    }
+
     private class Listener implements Runnable {
         public void run() {
             try {
@@ -72,7 +81,7 @@ public class ChatClient {
 
     public static void main(String[] args) {
         try {
-            ChatClient client = new ChatClient("LF102M04-72607", 6789);
+            ChatClient client = new ChatClient("localhost", 6789);
             client.start();
         } catch (IOException e) {
             e.printStackTrace();

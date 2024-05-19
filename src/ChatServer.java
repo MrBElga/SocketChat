@@ -13,35 +13,26 @@ public class ChatServer {
         InetAddress inetAddress = InetAddress.getLocalHost();
         String hostname = inetAddress.getHostName();
         String ipAddress = inetAddress.getHostAddress();
-        int port = 6789;
-        System.out.println("Rodando no hostname: " + hostname);
-        System.out.println("Rodando no IP: " + ipAddress);
-        System.out.println("Rodando na porta: " + port);
+        System.out.println("Running on hostname: " + hostname);
+        System.out.println("Running on IP: " + ipAddress);
+        System.out.println("Running on port: " + PORT);
 
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             while (true) {
                 Socket clientSocket = serverSocket.accept();
-                synchronized (lock) {
-                    ClientHandler clientHandler = new ClientHandler(clientSocket);
-                    clients.add(clientHandler);
-                    new Thread(clientHandler).start();
-                    if (clients.size() > 1) {
-                        requestClientAcceptance(clientHandler);
-                        lock.wait();
-                    } else {
-                        clientHandler.accept();
-                    }
-                }
+                new Thread(new ClientHandler(clientSocket)).start();
             }
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private static void requestClientAcceptance(ClientHandler newClient) {
-        for (ClientHandler client : clients) {
-            if (!client.equals(newClient)) {
-                client.requestAcceptance(newClient);
+    private static void requestClientAcceptance(ClientHandler newClient) throws IOException {
+        synchronized (lock) {
+            for (ClientHandler client : clients) {
+                if (!client.equals(newClient)) {
+                    client.out.println("JOIN_REQUEST " + newClient.username);
+                }
             }
         }
     }
@@ -74,9 +65,13 @@ public class ChatServer {
                     } else if (input.equals("EXIT")) {
                         handleExit();
                         break;
+                    } else if (input.startsWith("ACCEPT")) {
+                        handleAccept(input);
+                    } else if (input.startsWith("DENY")) {
+                        handleDeny(input);
                     }
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException e) {
                 e.printStackTrace();
             } finally {
                 try {
@@ -84,17 +79,27 @@ public class ChatServer {
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
-                clients.remove(this);
+                synchronized (lock) {
+                    clients.remove(this);
+                    if (joined) {
+                        broadcast(username + " has left the chat.");
+                    }
+                }
                 log("User disconnected");
             }
         }
 
-        private synchronized void handleJoin(String input) throws IOException {
+        private synchronized void handleJoin(String input) throws IOException, InterruptedException {
             this.username = input.substring(5);
-            joined = true;
-            out.println("JOIN_ACCEPTED");
-            broadcast(username + " has joined the chat.");
-            log(username + " has joined the chat.");
+            synchronized (lock) {
+                if (clients.isEmpty()) {
+                    accept();
+                } else {
+                    clients.add(this);  // Temporarily add the client to handle join requests
+                    requestClientAcceptance(this);
+                    lock.wait();
+                }
+            }
         }
 
         private void handleMessage(String input) {
@@ -112,9 +117,36 @@ public class ChatServer {
             }
         }
 
-        private void broadcast(String message) {
+        private void handleAccept(String input) {
+            String newClientUsername = input.substring(7);
             for (ClientHandler client : clients) {
-                client.out.println(message);
+                if (client.username.equals(newClientUsername)) {
+                    client.accept();
+                    break;
+                }
+            }
+        }
+
+        private void handleDeny(String input) throws IOException {
+            String newClientUsername = input.substring(5);
+            for (ClientHandler client : clients) {
+                if (client.username.equals(newClientUsername)) {
+                    client.out.println("JOIN_DENIED");
+                    client.socket.close();
+                    synchronized (lock) {
+                        clients.remove(client);
+                        lock.notifyAll();
+                    }
+                    break;
+                }
+            }
+        }
+
+        private void broadcast(String message) {
+            synchronized (lock) {
+                for (ClientHandler client : clients) {
+                    client.out.println(message);
+                }
             }
         }
 
@@ -124,14 +156,23 @@ public class ChatServer {
             System.out.println("[" + timestamp + "] " + message);
         }
 
-        private synchronized void requestAcceptance(ClientHandler newClient) {
-            out.println("JOIN_REQUEST");
-            // Aqui não precisamos chamar um método "accept"
+        private void requestClientAcceptance(ClientHandler newClient) throws IOException {
+            synchronized (lock) {
+                for (ClientHandler client : clients) {
+                    if (!client.equals(newClient)) {
+                        client.out.println("JOIN_REQUEST " + newClient.username);
+                    }
+                }
+            }
         }
 
-        // Método para aceitar a entrada de um novo cliente
         private synchronized void accept() {
+            joined = true;
             out.println("JOIN_ACCEPTED");
+            broadcast(username + " has joined the chat.");
+            synchronized (lock) {
+                lock.notifyAll();
+            }
         }
     }
 }
